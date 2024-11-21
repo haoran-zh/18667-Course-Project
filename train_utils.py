@@ -186,6 +186,15 @@ def diff_models(init_model, final_model):
         weight_diff_param.data = init_param.data - final_param.data
     return weight_diff
 
+
+def gradient_norm(model):
+    # compute the norm of the gradient of the model (this is l2 norm)
+    grad_norm = 0.0
+    for param in model.parameters():
+        grad_norm += torch.sum(param.data ** 2)
+    grad_norm = grad_norm ** 0.5
+    return grad_norm
+
 def sum_models(model1, model2):
     """
     Creates a new model where each parameter is the sum of the corresponding parameters
@@ -209,6 +218,13 @@ def model_normalize(model, d):
     weight_divide = set_model_as_zeros(model)
     for weight_divide_param, model_param in zip(weight_divide.parameters(), model.parameters()):
         weight_divide_param.data = model_param.data / d
+    return weight_divide
+
+
+def rescale_model(model, k):
+    weight_divide = set_model_as_zeros(model)
+    for weight_divide_param, model_param in zip(weight_divide.parameters(), model.parameters()):
+        weight_divide_param.data = model_param.data * k
     return weight_divide
 
 def update_model(init_model, diff_model): 
@@ -400,6 +416,97 @@ def fl_train_FedVARP(server_model, clients, comm_rounds, lr, momentum, local_ite
         for client_idx in selected_clients:
             y_updates[client_idx] = model_diffs[cnt]
             cnt += 1
+
+        # Evaluate model performance and record accuracy
+        accuracy = eval(server_model, testloader)
+        accuracies.append(accuracy)
+        print(f"Round {round_num + 1}/{comm_rounds} - Accuracy: {accuracy:.4f}")
+
+    return accuracies
+
+
+def agg_prob(server_model, model_diffs, selected_clients, p_i, data_ratio):
+    # server_model_new = server_model - Delta
+    # Delta = sum(y_updates)/len(y_updates) + (model_diffs - y_updates) / len(model_diffs)
+    # compute sum of y_updates
+    sum_Delta = set_model_as_zeros(server_model)
+    for client_idx in selected_clients:
+        model_diff = model_diffs[client_idx]
+        model_diff = rescale_model(model_diff, data_ratio[client_idx] / p_i[client_idx] * 0.9) # global learning rate: 0.9
+        sum_Delta = sum_models(sum_Delta, model_diff)
+    # Delta = sum_y_updates + sum_Delta
+    # server_model_new = server_model - Delta
+    server_model = diff_models(server_model, sum_Delta)
+    return server_model
+
+
+def fl_train_vr(server_model, clients, comm_rounds, lr, momentum, local_iters, testloader, client_frac=1.0, mu=0.0):
+    """
+    Trains a model using Federated Learning (FL) by conducting multiple communication rounds between a central server and clients.
+
+    Args:
+        server_model (torch.nn.Module): The central model hosted on the server, which will be updated based on client models.
+        clients (List[torch.utils.data.DataLoader]): A list of DataLoaders, each providing training data for a client.
+        comm_rounds (int): The number of communication rounds between the server and the clients.
+        lr (float): The learning rate for local client training.
+        momentum (float): The momentum for the SGD optimizer used in local client training.
+        local_iters (Union[int, List[int]]): The number of local training iterations for each client. If an integer, all clients
+                                             use the same number of iterations. If a list, specifies iterations per client.
+        testloader (torch.utils.data.DataLoader): The DataLoader for evaluating the global model's accuracy after each round.
+        client_frac (float, optional): The fraction of clients participating in each communication round. Defaults to 1.0 (i.e., full client participation).
+        mu (float, optional): The coefficient for the proximal term in the FedProx algorithm. Defaults to 0.0, indicating no proximal term (i.e., standard FL).
+
+    Returns:
+        List[float]: A list of accuracy values recorded after each communication round. The first value in the list should be the server model's initial performance
+
+    """
+    from sampling_algorithms import variance_reduced_sampling
+    accuracies = []
+    initial_accuracy = eval(server_model, testloader)
+    accuracies.append(initial_accuracy)
+
+    # record datasize ratio for each client
+    all_clients = np.arange(len(clients))
+    num_data = []
+    for client_idx in all_clients:
+        num_data.append(len(clients[client_idx].dataset))
+    num_data = np.array(num_data)
+    data_ratio = num_data / num_data.sum()
+
+    N = len(clients)
+    m = client_frac * N
+
+
+    print(f"Initial Accuracy: {initial_accuracy:.4f}")
+
+    for round_num in range(comm_rounds):
+        # selected_clients should be all
+        client_models = []
+        # Train each selected client model
+        initial_model = copy.deepcopy(server_model)
+        for client_idx in all_clients:
+            client_model = copy.deepcopy(server_model)
+            optimizer = torch.optim.SGD(client_model.parameters(), lr=lr, momentum=momentum)
+            # Perform local training
+            trainloader = clients[client_idx]
+            # how many datapoints in trainloader
+            num_data = len(trainloader.dataset)
+            client_iters = local_iters
+            train(client_model, trainloader, optimizer, max_iters=client_iters)
+
+            client_models.append(client_model)
+        # compute weight different (gradient)
+        model_diffs = []
+        diff_norms = []
+        for client_idx in all_clients:
+            diff = diff_models(initial_model, client_models[client_idx])
+            norm = gradient_norm(diff)
+            model_diffs.append(diff)
+            diff_norms.append(norm * data_ratio[client_idx])
+        # decide the sampling result
+        selected_clients, p_i = variance_reduced_sampling(N, m, diff_norms)
+
+        server_model = agg_prob(server_model, model_diffs, selected_clients, p_i, data_ratio)
 
         # Evaluate model performance and record accuracy
         accuracy = eval(server_model, testloader)

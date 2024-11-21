@@ -7,7 +7,7 @@ import sys
 
 from models import ConvNet
 from data_utils import build_mnist
-from train_utils import  central_train, fl_train, fl_train_FedVARP
+from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr
 import pickle
 
 
@@ -39,6 +39,38 @@ def random_sampling(args):
 
     # save accuracies
     with open(f'plots/random.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
+
+
+
+def variance_reduced_sampling_train(args):
+    clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
+    all_accuracies = []
+    client_frac = 0.1
+
+    model = ConvNet()
+    accuracies = fl_train_vr(model, clients, args.comm_rounds, args.lr, args.momentum, args.local_iters,
+                          testloader, client_frac=client_frac)
+    all_accuracies.append(accuracies)
+
+    # Plot the accuracies
+    plt.figure(figsize=(10, 6))
+
+    # Loop over each accuracy list and corresponding n_clients value
+    for i, accuracies in enumerate(all_accuracies):
+        plt.plot(accuracies, label=f'client_frac={client_frac}')
+
+    # Add labels and title
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title(f'random sampling')
+    plt.legend()
+    plt.grid(True)
+    # Show the plots
+    plt.savefig(f'plots/vr_sampling.png')
+
+    # save accuracies
+    with open(f'plots/vr_sampling.pkl', 'wb') as f:
         pickle.dump(all_accuracies, f)
 
 
@@ -76,11 +108,11 @@ def other_sampling(args):
 
 
 def main(args):
-    if args.question is None or args.question not in globals().keys(): 
+    if args.samplingAlgo is None or args.samplingAlgo not in globals().keys():
         print("Please run a specific/valid question to test your code")
         sys.exit()
     
-    function_name = args.question
+    function_name = args.samplingAlgo
     globals()[function_name](args)
 
 if __name__ == '__main__': 
