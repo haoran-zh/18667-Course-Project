@@ -52,3 +52,13 @@ def variance_reduced_sampling(n, m, model_diffs):
             selected_clients.append(idx)
     return selected_clients, p_i
 
+def dataset_size_sampling(n, m, dataset_sizes):
+
+    total_size = np.sum(dataset_sizes)
+
+
+    p_i = dataset_sizes / total_size
+
+    selected_clients = np.random.choice(n, size=m, replace=False, p=p_i)
+
+    return selected_clients, p_i
