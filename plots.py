@@ -7,7 +7,7 @@ import sys
 
 from models import ConvNet
 from data_utils import build_mnist
-from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr
+from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr, fl_train_ds
 import pickle
 
 
@@ -71,6 +71,33 @@ def variance_reduced_sampling_train(args):
 
     # save accuracies
     with open(f'plots/vr_sampling.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
+        
+def dataset_size_sampling_train(args):
+    clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
+    all_accuracies = []
+    client_frac = 0.1  
+
+    model = ConvNet()
+   
+    accuracies = fl_train_ds(model, clients, args.comm_rounds, args.lr, args.momentum, args.local_iters,
+                             testloader, client_frac=client_frac)  
+    all_accuracies.append(accuracies)
+
+  
+    plt.figure(figsize=(10, 6))
+
+    for i, accuracies in enumerate(all_accuracies):
+        plt.plot(accuracies, label=f'client_frac={client_frac}')
+
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title('Dataset Size Sampling') 
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('plots/ds_sampling.png') 
+
+    with open('plots/ds_sampling.pkl', 'wb') as f: 
         pickle.dump(all_accuracies, f)
 
 
