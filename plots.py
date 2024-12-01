@@ -7,7 +7,7 @@ import sys
 
 from models import ConvNet
 from data_utils import build_mnist
-from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr, fl_train_ds
+from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr, fl_train_ds,fl_train_random, fl_train_full
 import pickle
 
 
@@ -101,6 +101,57 @@ def dataset_size_sampling_train(args):
         pickle.dump(all_accuracies, f)
 
 
+def random_sampling_train(args):
+    clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
+    all_accuracies = []
+    client_frac = 0.1  
+
+    model = ConvNet()
+
+    accuracies = fl_train_random(model, clients, args.comm_rounds, args.lr, args.momentum, args.local_iters,
+                                 testloader, client_frac=client_frac)
+    all_accuracies.append(accuracies)
+
+    plt.figure(figsize=(10, 6))
+
+    for i, accuracies in enumerate(all_accuracies):
+        plt.plot(accuracies, label=f'client_frac={client_frac}')
+
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title('Random Sampling')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('plots/random_sampling.png')
+
+    with open('plots/random_sampling.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
+        
+def full_participation_train(args):
+    clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
+    all_accuracies = []
+
+    model = ConvNet()
+
+    accuracies = fl_train_full(model, clients, args.comm_rounds, args.lr, args.momentum, args.local_iters,
+                               testloader)
+    all_accuracies.append(accuracies)
+
+    plt.figure(figsize=(10, 6))
+
+    plt.plot(accuracies, label='Full Participation')
+
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title('Full Client Participation')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('plots/full_participation.png')
+
+    with open('plots/full_participation.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
+        
+        
 def other_sampling(args):
     clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
     all_accuracies = []

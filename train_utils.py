@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import copy 
-from sampling_algorithms import dataset_size_sampling 
+from sampling_algorithms import dataset_size_sampling,random_sampling,full_participation
 
 def train(model, trainloader, opt, max_iters): 
     """
@@ -534,6 +534,91 @@ def fl_train_ds(server_model, clients, comm_rounds, lr, momentum, local_iters, t
 
     for round_num in range(comm_rounds):
         selected_clients, p_i = dataset_size_sampling(N, m, num_data) 
+
+        client_models = {}
+        initial_model = copy.deepcopy(server_model)
+        for client_idx in selected_clients:  
+            client_model = copy.deepcopy(server_model)
+            optimizer = torch.optim.SGD(client_model.parameters(), lr=lr, momentum=momentum)
+            trainloader = clients[client_idx]
+            client_iters = local_iters  
+            train(client_model, trainloader, optimizer, max_iters=client_iters)
+
+            client_models[client_idx] = client_model
+
+        model_diffs = [None] * N
+        for client_idx in selected_clients:
+            client_model = client_models[client_idx]
+            diff = diff_models(initial_model, client_model)
+            model_diffs[client_idx] = diff
+
+        server_model = agg_prob(server_model, model_diffs, selected_clients, p_i, data_ratio)
+
+        accuracy = eval(server_model, testloader)
+        accuracies.append(accuracy)
+        print(f"Round {round_num + 1}/{comm_rounds} - Accuracy: {accuracy:.4f}")
+
+    return accuracies
+
+def fl_train_random(server_model, clients, comm_rounds, lr, momentum, local_iters, testloader, client_frac=1.0, mu=0.0):
+
+    accuracies = []
+    initial_accuracy = eval(server_model, testloader)
+    accuracies.append(initial_accuracy)
+
+    N = len(clients)
+    all_clients = np.arange(N)
+    num_data = np.array([len(clients[client_idx].dataset) for client_idx in all_clients])
+    data_ratio = num_data / num_data.sum()
+
+    m = int(client_frac * N)  
+
+    print(f"Initial Accuracy: {initial_accuracy:.4f}")
+
+    for round_num in range(comm_rounds):
+        
+        selected_clients, p_i = random_sampling(N, m)
+
+        client_models = {}
+        initial_model = copy.deepcopy(server_model)
+        for client_idx in selected_clients:  
+            client_model = copy.deepcopy(server_model)
+            optimizer = torch.optim.SGD(client_model.parameters(), lr=lr, momentum=momentum)
+            trainloader = clients[client_idx]
+            client_iters = local_iters  
+            train(client_model, trainloader, optimizer, max_iters=client_iters)
+
+            client_models[client_idx] = client_model
+
+        model_diffs = [None] * N
+        for client_idx in selected_clients:
+            client_model = client_models[client_idx]
+            diff = diff_models(initial_model, client_model)
+            model_diffs[client_idx] = diff
+
+        server_model = agg_prob(server_model, model_diffs, selected_clients, p_i, data_ratio)
+
+        accuracy = eval(server_model, testloader)
+        accuracies.append(accuracy)
+        print(f"Round {round_num + 1}/{comm_rounds} - Accuracy: {accuracy:.4f}")
+
+    return accuracies
+
+def fl_train_full(server_model, clients, comm_rounds, lr, momentum, local_iters, testloader, mu=0.0):
+
+    accuracies = []
+    initial_accuracy = eval(server_model, testloader)
+    accuracies.append(initial_accuracy)
+
+    N = len(clients)
+    all_clients = np.arange(N)
+    num_data = np.array([len(clients[client_idx].dataset) for client_idx in all_clients])
+    data_ratio = num_data / num_data.sum()
+
+    print(f"Initial Accuracy: {initial_accuracy:.4f}")
+
+    for round_num in range(comm_rounds):
+        selected_clients, p_i = full_participation(N)
 
         client_models = {}
         initial_model = copy.deepcopy(server_model)

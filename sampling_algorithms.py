@@ -62,3 +62,18 @@ def dataset_size_sampling(n, m, dataset_sizes):
     selected_clients = np.random.choice(n, size=m, replace=False, p=p_i)
 
     return selected_clients, p_i
+
+def random_sampling(n, m):
+
+    p_i = np.ones(n) * (m / n)
+
+    selected_clients = np.random.choice(n, size=m, replace=False)
+
+    return selected_clients, p_i
+
+def full_participation(n):
+
+
+    selected_clients = np.arange(n)
+    p_i = np.ones(n)
+    return selected_clients, p_i
