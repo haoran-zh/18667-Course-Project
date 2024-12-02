@@ -2,5 +2,10 @@ import torch
 import numpy as np
 import copy
 
-# start your sampling algorithms in this file
+from enum import Enum
 
+
+class LogLevel(Enum):
+    DEBUG = 1
+    INFO = 2
+    RELEASE = 3
