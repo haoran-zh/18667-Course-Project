@@ -7,7 +7,7 @@ import sys
 
 from models import ConvNet
 from data_utils import build_mnist
-from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr, fl_train_ds,fl_train_random, fl_train_full
+from train_utils import  central_train, fl_train, fl_train_FedVARP, fl_train_vr, fl_train_ds,fl_train_random, fl_train_full, fl_train_bandits
 import pickle
 
 
@@ -182,7 +182,59 @@ def other_sampling(args):
     with open(f'plots/random.pkl', 'wb') as f:
         pickle.dump(all_accuracies, f)
 
+def bandit_sampling(args):
 
+    clients, testloader = build_mnist(args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
+    all_accuracies = []
+    all_client_accuracies = []
+    client_frac = 0.1
+
+    model = ConvNet()
+    accuracies, client_accuracies = fl_train_bandits(model, clients, args.comm_rounds, args.lr, args.momentum, args.local_iters,
+                          testloader, {'gamma' : args.gamma, 'm' : int(client_frac * args.num_clients)}, client_frac=client_frac)
+    all_accuracies.append(accuracies)
+
+    all_client_accuracies.append(client_accuracies)
+
+    # Plot the accuracies
+    plt.figure(figsize=(10, 6))
+
+    # Loop over each accuracy list and corresponding n_clients value
+    for i, accuracies in enumerate(all_accuracies):
+        plt.plot(accuracies, label=f'client_frac={client_frac}')
+
+    # Add labels and title
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title(f'Bandit sampling')
+    plt.legend()
+    plt.grid(True)
+    # Show the plots
+    plt.savefig(f'plots/banndits_server_accuracy.png')
+
+    # save accuracies
+    with open(f'plots/bandits_server_accuracy.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
+
+    plt.figure(figsize = (10, 6))
+
+    for i, accs in enumerate(all_client_accuracies):
+
+        for j in range(len(accs)):
+
+            plt.plot(accs[j], label = 'client {J}, client_frac {f}'.format(J = j, f = client_frac))
+
+    plt.xlabel('Communication Rounds')
+    plt.ylabel('Accuracy')
+    plt.title(f'Bandit sampling')
+    plt.legend()
+    plt.grid(True)
+    # Show the plots
+    plt.savefig(f'plots/banndits_client_accuracy.png')
+
+    # save accuracies
+    with open(f'plots/bandits_client_accuracies.pkl', 'wb') as f:
+        pickle.dump(all_accuracies, f)
 
 
 def main(args):
@@ -225,6 +277,8 @@ if __name__ == '__main__':
         help='Momentum')
     parser.add_argument('--local-iters', type=int, default=10,
         help='Number of local iterations to use for training')
+    parser.add_argument('--gamma', type = float, default = 1,
+        help = 'Discount factor for old loss in bandit sampling')
 
     
     args = parser.parse_args()

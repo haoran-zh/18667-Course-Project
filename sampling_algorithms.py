@@ -77,3 +77,16 @@ def full_participation(n):
     selected_clients = np.arange(n)
     p_i = np.ones(n)
     return selected_clients, p_i
+
+
+def bandit_sampling(ucb_indices, m, K):
+
+    temp = [[ucb_indices[i], i] for i in range(K)]
+
+    temp = sorted(temp, key = lambda x: -x[0])
+
+    indices = temp[0 : m]
+
+    indices = [x[1] for x in indices]
+
+    return indices

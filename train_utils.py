@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import copy 
-from sampling_algorithms import dataset_size_sampling,random_sampling,full_participation
+from sampling_algorithms import dataset_size_sampling,random_sampling,full_participation,bandit_sampling
 
 def train(model, trainloader, opt, max_iters): 
     """
@@ -19,6 +19,8 @@ def train(model, trainloader, opt, max_iters):
     """
     model.train()
 
+    l = 0.
+
     for i, (inputs, targets) in enumerate(trainloader): 
         if i == max_iters: 
             break  
@@ -29,7 +31,11 @@ def train(model, trainloader, opt, max_iters):
             
         opt.zero_grad()
         loss.backward()    
-        opt.step() 
+        opt.step()
+
+        l += loss.item()
+
+    return l/max_iters
 
 def prox_train(init_model, model, trainloader, opt, mu, max_iters): 
     """
@@ -48,6 +54,7 @@ def prox_train(init_model, model, trainloader, opt, mu, max_iters):
     """
     # TODO: Fill out the proximal training code for problem 2C 
     model.train()
+    l = 0.
 
     for i, (inputs, targets) in enumerate(trainloader):
         if i == max_iters:
@@ -66,6 +73,10 @@ def prox_train(init_model, model, trainloader, opt, mu, max_iters):
         opt.zero_grad()
         loss.backward()
         opt.step()
+
+        l += loss.item()
+
+    return l/max_iters
 
 def eval(model, testloader): 
     """
@@ -644,3 +655,117 @@ def fl_train_full(server_model, clients, comm_rounds, lr, momentum, local_iters,
         print(f"Round {round_num + 1}/{comm_rounds} - Accuracy: {accuracy:.4f}")
 
     return accuracies
+
+
+
+def fl_train_bandits(server_model, clients, comm_rounds, lr, momentum, local_iters, testloader, bandit_params, client_frac=1.0, mu=0.0):
+    
+    accuracies = []
+
+    initial_accuracy = eval(server_model, testloader)
+
+    accuracies.append(initial_accuracy)
+
+    print('Bandit parameters:', bandit_params)
+
+    K = len(clients)
+
+    if type(local_iters) == int:
+
+        local_iters = [local_iters for i in range(K)]
+
+    client_models = [copy.deepcopy(server_model) for i in range(K)]
+
+    client_accuracies = [[] for i in range(K)]
+
+    opt = [torch.optim.SGD(client_models[i].parameters(), lr = lr, momentum = momentum) for i in range(K)]
+
+    ucb_indices = [0. for i in range(K)]
+
+    discounted_loss = [0. for i in range(K)]
+
+    discounted_time = 1.
+
+    selection_count = [1. for i in range(K)]
+
+    for p_s in server_model.parameters():
+
+        p_s.requires_grad = False
+
+    #Commence training
+
+    for round in range(comm_rounds):
+
+        indices = bandit_sampling(ucb_indices, bandit_params['m'], K)
+
+        mean_loss = 0.
+
+        mean_loss_sq = 0.
+
+        #Evaluate client loss everywhere to check how the algorithm behaves
+        #We must evaluate the training loss here, as test loss does is the same for everyone!
+
+        for i in range(K):
+
+            client_accuracies[i].append(eval(client_models[i], clients[i]))
+
+        for index in indices:
+
+            L = 0.
+
+            trainloader = clients[index]
+
+            if mu == 0:
+
+                L = train(client_models[index], trainloader, opt[index], max_iters = local_iters[index])
+
+            else:
+
+                L = prox_train(server_model, client_models[index], trainloader, opt[index], mu, max_iters = local_iters[index])
+
+            with torch.no_grad():
+
+                mean_loss += L
+
+                mean_loss_sq += L ** 2
+
+                discounted_loss[index] = discounted_loss[index] * bandit_params['gamma'] + L
+
+                selection_count[index] = selection_count[index] * bandit_params['gamma'] + 1
+
+        with torch.no_grad():
+
+            agg_models(server_model, [client_models[index] for index in indices])
+
+            #Share this updated model with everyone
+
+            for i in range(K):
+
+                for p_s, p_i in zip(server_model.parameters(), client_models[i].parameters()):
+
+                    p_i.copy_(p_s)
+
+            #Now, update the ucb indices
+
+            discounted_time = discounted_time * bandit_params['gamma'] + 1
+
+            sigma2 = mean_loss_sq/len(indices) - (mean_loss/len(indices)) ** 2
+
+            for i in range(K):
+
+                if i in indices:
+
+                    selection_count[i] *= bandit_params['gamma']
+
+                    discounted_loss[i] *= bandit_params['gamma']
+
+                ucb_indices[i] = np.sqrt(2 * sigma2 * np.log(discounted_time / selection_count[i])) + discounted_loss[i]
+
+            #Evaluate the model now
+            a = eval(server_model, testloader)
+
+            accuracies.append(a)
+
+            print(round, a)
+                
+    return accuracies, client_accuracies
