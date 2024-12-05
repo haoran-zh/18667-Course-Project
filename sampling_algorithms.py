@@ -2,7 +2,14 @@ import torch
 import numpy as np
 import copy
 
-# start your sampling algorithms in this file
+from enum import Enum
+
+
+
+class LogLevel(Enum):
+    DEBUG = 1
+    INFO = 2
+    RELEASE = 3
 
 def variance_reduced_sampling(n, m, model_diffs):
     # gradient_record: the shape is [task_index][client_index]
@@ -90,3 +97,4 @@ def bandit_sampling(ucb_indices, m, K):
     indices = [x[1] for x in indices]
 
     return indices
+
