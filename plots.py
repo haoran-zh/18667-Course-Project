@@ -45,7 +45,7 @@ def poc_sampling(args):
         args.num_clients, args.iid_alpha, args.batch_size, seed=args.seed)
     all_accuracies = []
 
-    client_frac = 0.2
+    client_frac = 0.1
     # d in the paper: controls the trade-off between convergence speed and solution bias
     power_d_s = [3, 5, 10]
 
